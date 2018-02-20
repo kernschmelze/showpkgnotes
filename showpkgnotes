@@ -1,0 +1,79 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use diagnostics;
+use Data::Dumper;
+# use utf8;
+# use integer;
+use POSIX;
+my $sps = '#######################################################################';
+my $spl = '############################################################################################';
+my $spe = '###############################     PACKAGE STATISTICS    ##################################';
+
+my $pkg_total                 = 0;
+my $pkg_with_notes            = 0;
+my $pkg_with_notes_nomaint    = 0;
+my $pkg_with_notes_maint      = 0;
+my $pkg_without_notes         = 0;    # without notes implies maint
+my $pkg_without_notes_nomaint = 0;
+
+my $pkgswithnomaint = '';
+my $pkglist = `pkg info`;
+die ("pkg info -> error\n") if $?;
+$pkglist =~ s/^(\S+?) .*$/$1/mg;
+my @pkga = split /\n/, $pkglist;
+
+my $spattern;
+($spattern = $ARGV[0]) if (exists $ARGV[0]);
+my $o = '';
+foreach my $p (sort @pkga) {
+  my $maint = 1;
+  my ($pkg) = $p =~ /^([^:]*)/;
+  my ($pkgm) = $pkg =~ /^(.*?)[^-]*$/;
+  chop $pkgm;
+  # if character pattern given as argument, match it
+  next if ((defined $spattern) and (not $p =~ /$spattern/));
+  my $s = `pkg info -D $p`;
+  die ("pkg info -D $p-> error\n") if $?;
+  ++$pkg_total;
+  if (index( $s, "\n") == (length($s)-1)) {
+    ++$pkg_without_notes;
+    next;
+  }
+  if (index( $s, "port currently does not have a maintainer") != -1) {
+    $maint = 0;
+    $pkgswithnomaint .= (length( $pkgswithnomaint)) ? " $pkgm" : $pkgm;
+    if ($s =~ /\#maintain-port\n$/) {
+      # note ends with no-maintainer notice
+      if (index( $s, "$pkg:\nAlways:\n===>   NOTICE:\n\nThe $pkgm port currently does not have a maintainer") == 0) {
+        # ... and begins with that notice as well -> no "real" note here, only no-maintainer
+        next;
+      }
+      # if we reach here, we have a pkg with notes and no maintainer.
+      # Cut off the maintainer notice. 
+      my $l = index( $s,"\n===>   NOTICE:\n\nThe $pkgm port currently does not have a maintainer");
+      $s = substr( $s, 0, $l);
+      ++$pkg_with_notes_nomaint;
+      ++$pkg_with_notes;      
+  } } else {
+    # pkg has notes and maintainer
+    ++$pkg_with_notes_maint;
+    ++$pkg_with_notes;
+  }
+  # NOTE: format the output to your liking! this is just an example.
+  $s =~ s/^\s?Always:\s?$//gm;
+  ($pkgm .= '   <--- NO MAINTAINER!!!') if (!$maint);
+  $o .= "$spl\n$sps\n$sps            $pkgm\n$sps\n$spl\n\n$s"
+}
+
+# now append final output statistics
+$o .= "$spl\n$spl\n$spe\n\n";
+my $pat = (defined $spattern) ? $spattern : '*';
+$o .= "Your search with the pattern $pat resulted in $pkg_total hits.\n";
+if ($pkg_total) {
+  $o .= "Of these $pkg_with_notes packages which have notes, $pkg_with_notes_nomaint are unmaintained.\n";
+  if ($pkg_with_notes_nomaint) {
+    $o .= "Here is the list of these:\n$pkgswithnomaint\n";
+    $o .= "Please consider to adopt one of these.\n";
+} }
+print $o;
